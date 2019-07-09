@@ -2,9 +2,14 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using Dalamud.Discord;
+using Dalamud.Game.Chat;
+using Newtonsoft.Json;
 using XIVLauncher.Addon;
 using XIVLauncher.Cache;
 
@@ -21,15 +26,15 @@ namespace XIVLauncher
 
             GamePathEntry.Text = Settings.GetGamePath();
             Dx11RadioButton.IsChecked = Settings.IsDX11();
-            ExpansionLevelComboBox.SelectedIndex = Settings.GetExpansionLevel();
             LanguageComboBox.SelectedIndex = (int) Settings.GetLanguage();
             AddonListView.ItemsSource = Settings.GetAddonList();
-            UidCacheCheckBox.IsChecked = Settings.IsUniqueIdCacheEnabled();
+            UidCacheCheckBox.IsChecked = Settings.UniqueIdCacheEnabled;
 
-            RmtAdFilterCheckBox.IsChecked = Settings.IsRmtFilterEnabled();
-            DiscordWebHookUrlTextBox.Text = Settings.GetDiscordWebhookUrl();
-            ChatMessageNotificationCheckBox.IsChecked = Settings.IsChatNotificationsEnabled();
-            ContentFinderNotificationCheckBox.IsChecked = Settings.IsCfNotificationsEnabled();
+            var featureConfig = Settings.DiscordFeatureConfig;
+            ChannelListView.ItemsSource = featureConfig.ChatTypeConfigurations;
+            DiscordBotTokenTextBox.Text = featureConfig.Token;
+
+            RmtAdFilterCheckBox.IsChecked = Settings.RmtFilterEnabled;
             EnableHooksCheckBox.IsChecked = Settings.IsInGameAddonEnabled();
 
             VersionLabel.Text += " - v" + Util.GetAssemblyVersion() + " - " + Util.GetGitHash();
@@ -39,16 +44,17 @@ namespace XIVLauncher
         {
             Settings.SetGamePath(GamePathEntry.Text);
             Settings.SetDx11(Dx11RadioButton.IsChecked == true);
-            Settings.SetExpansionLevel(ExpansionLevelComboBox.SelectedIndex);
             Settings.SetLanguage((ClientLanguage) LanguageComboBox.SelectedIndex);
             Settings.SetAddonList((List<AddonEntry>) AddonListView.ItemsSource);
-            Settings.SetUniqueIdCacheEnabled(UidCacheCheckBox.IsChecked == true);
+            Settings.UniqueIdCacheEnabled = UidCacheCheckBox.IsChecked == true;
 
-            Settings.SetRmtFilterEnabled(RmtAdFilterCheckBox.IsChecked == true);
-            Settings.SetDiscordWebhookUrl(DiscordWebHookUrlTextBox.Text);
-            Settings.SetChatNotificationsEnabled(ChatMessageNotificationCheckBox.IsChecked == true);
-            Settings.SetCfNotificationsEnabled(ContentFinderNotificationCheckBox.IsChecked == true);
+            Settings.RmtFilterEnabled = RmtAdFilterCheckBox.IsChecked == true;
+
             Settings.SetInGameAddonEnabled(EnableHooksCheckBox.IsChecked == true);
+
+            var featureConfig = Settings.DiscordFeatureConfig;
+            featureConfig.Token = DiscordBotTokenTextBox.Text;
+            Settings.DiscordFeatureConfig = featureConfig;
 
             Settings.Save();
         }
@@ -180,7 +186,7 @@ namespace XIVLauncher
 
         private void ResetCacheButton_OnClick(object sender, RoutedEventArgs e)
         {
-            Settings.SetUniqueIdCache(new List<UniqueIdCacheEntry>());
+            Settings.UniqueIdCache = new List<UniqueIdCacheEntry>();
             Settings.Save();
             MessageBox.Show("Reset. Please restart the app.");
 
@@ -192,12 +198,154 @@ namespace XIVLauncher
             if (e.ChangedButton != MouseButton.Left)
                 return;
 
-            Process.Start("https://github.com/goaaats/FFXIVQuickLauncher/wiki/How-to-set-up-a-discord-webhook");
+            Process.Start("https://github.com/goaaats/FFXIVQuickLauncher/wiki/How-to-set-up-a-discord-bot");
         }
 
         private void DiscordButton_OnClick(object sender, RoutedEventArgs e)
         {
-            Process.Start("https://discord.gg/29NBmud");
+            Process.Start("https://discord.gg/3NMcUV5");
+        }
+
+        private void RemoveChatConfigEntry_OnClick(object sender, RoutedEventArgs e)
+        {
+            var featureConfig = Settings.DiscordFeatureConfig;
+                    
+            featureConfig.ChatTypeConfigurations.RemoveAt(ChannelListView.SelectedIndex);
+
+            ChannelListView.ItemsSource = featureConfig.ChatTypeConfigurations;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void ChannelListView_OnMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left)
+                return;
+
+            if (!(ChannelListView.SelectedItem is ChatTypeConfiguration configEntry))
+                return;
+
+            var channelSetup = new ChatChannelSetup(configEntry);
+            channelSetup.ShowDialog();
+
+            if (channelSetup.Result == null)
+                return;
+
+            var featureConfig = Settings.DiscordFeatureConfig;
+                    
+            //featureConfig.ChatTypeConfigurations = featureConfig.ChatTypeConfigurations.Where(x => !x.CompareEx(configEntry)).ToList();
+            featureConfig.ChatTypeConfigurations.RemoveAt(ChannelListView.SelectedIndex);
+            featureConfig.ChatTypeConfigurations.Add(channelSetup.Result);
+
+            ChannelListView.ItemsSource = featureConfig.ChatTypeConfigurations;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void AddChannelConfig_OnClick(object sender, RoutedEventArgs e)
+        {
+            var channelSetup = new ChatChannelSetup();
+            channelSetup.ShowDialog();
+
+            if (channelSetup.Result == null) 
+                return;
+
+            var featureConfig = Settings.DiscordFeatureConfig;
+            featureConfig.ChatTypeConfigurations.Add(channelSetup.Result);
+            ChannelListView.ItemsSource = featureConfig.ChatTypeConfigurations;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void SetDutyFinderNotificationChannel_OnClick(object sender, RoutedEventArgs e)
+        {
+            var featureConfig = Settings.DiscordFeatureConfig;
+
+            var channelConfig = featureConfig.CfNotificationChannel ?? new ChannelConfiguration();
+
+            var channelSetup = new ChatChannelSetup(channelConfig);
+            channelSetup.ShowDialog();
+
+            if (channelSetup.Result == null) 
+                return;
+
+            featureConfig.CfNotificationChannel = channelSetup.Result.Channel;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void SetFateNotificationChannel_OnClick(object sender, RoutedEventArgs e)
+        {
+            var featureConfig = Settings.DiscordFeatureConfig;
+
+            var channelConfig = featureConfig.FateNotificationChannel ?? new ChannelConfiguration();
+
+            var channelSetup = new ChatChannelSetup(channelConfig);
+            channelSetup.ShowDialog();
+
+            if (channelSetup.Result == null) 
+                return;
+
+            featureConfig.FateNotificationChannel = channelSetup.Result.Channel;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void SetRetainerNotificationChannel_OnClick(object sender, RoutedEventArgs e)
+        {
+            var featureConfig = Settings.DiscordFeatureConfig;
+
+            var channelConfig = featureConfig.RetainerNotificationChannel ?? new ChannelConfiguration();
+
+            var channelSetup = new ChatChannelSetup(channelConfig);
+            channelSetup.ShowDialog();
+
+            if (channelSetup.Result == null) 
+                return;
+
+            featureConfig.RetainerNotificationChannel = channelSetup.Result.Channel;
+            Settings.DiscordFeatureConfig = featureConfig;
+        }
+
+        private void RunIntegrityCheck_OnClick(object s, RoutedEventArgs e)
+        {
+            var window = new IntegrityCheckProgressWindow();
+            var progress = new Progress<IntegrityCheck.IntegrityCheckProgress>();
+            progress.ProgressChanged += (sender, checkProgress) => window.UpdateProgress(checkProgress);
+
+            Task.Run(async () => await IntegrityCheck.CompareIntegrityAsync(progress)).ContinueWith(task =>
+            {
+                window.Dispatcher.Invoke(() => window.Close());
+
+                switch (task.Result.compareResult)
+                {
+                    case IntegrityCheck.CompareResult.NoServer:
+                        MessageBox.Show("There is no reference report yet for this game version. Please try again later.", "XIVLauncher", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+                        return;
+
+                    case IntegrityCheck.CompareResult.Invalid:
+                    {
+                        File.WriteAllText("integrityreport.txt", task.Result.report);
+                        var result = MessageBox.Show(
+                            $"Some game files seem to be modified or corrupted. Please check the \"integrityreport.txt\" file in the XIVLauncher folder for more information.\n\nDo you want to reset the game to the last patch? This will allow you to patch it again, likely fixing the issues you are encountering.", "XIVLauncher", MessageBoxButton.YesNo, MessageBoxImage.Exclamation);
+
+                        if (result == MessageBoxResult.Yes)
+                        {
+                            var verFile = Path.Combine(Settings.GetGamePath(), "game", "ffxivgame.ver");
+
+                            File.Delete(verFile);
+                            File.WriteAllText(verFile, task.Result.remoteIntegrity.LastGameVersion);
+
+                            Process.Start(System.IO.Path.Combine(GamePathEntry.Text, "boot", "ffxivboot.exe"));
+                            Environment.Exit(0);
+                        }
+
+                        break;
+                    }
+
+                    case IntegrityCheck.CompareResult.Valid:
+                        MessageBox.Show("Your game install seems to be valid.", "XIVLauncher", MessageBoxButton.OK,
+                            MessageBoxImage.Asterisk);
+                        break;
+                }
+            });
+
+            window.ShowDialog();
         }
     }
 }

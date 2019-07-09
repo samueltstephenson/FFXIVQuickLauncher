@@ -1,15 +1,20 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using AdysTech.CredentialManager;
+using Dalamud.Discord;
 using Newtonsoft.Json;
 using XIVLauncher.Addon;
 using XIVLauncher.Cache;
 
 namespace XIVLauncher
 {
+    // TODO: All of this needs a rework
     static class Settings
     {
+        public static Action LanguageChanged;
+
         public static NetworkCredential GetCredentials(string app)
         {
             return CredentialManager.GetCredentials(app);
@@ -45,7 +50,11 @@ namespace XIVLauncher
 
         public static void SetLanguage(ClientLanguage language)
         {
-            Properties.Settings.Default.Language = (int) language;
+            int previousLanguage = Properties.Settings.Default.Language;
+            Properties.Settings.Default.Language = (int)language;
+
+            if (previousLanguage != (int)language)
+                LanguageChanged?.Invoke();
         }
 
         public static bool IsDX11()
@@ -78,16 +87,6 @@ namespace XIVLauncher
             Properties.Settings.Default.NeedsOtp = value;
         }
 
-        public static int GetExpansionLevel()
-        {
-            return Properties.Settings.Default.ExpansionLevel;
-        }
-
-        public static void SetExpansionLevel(int level)
-        {
-            Properties.Settings.Default.ExpansionLevel = level;
-        }
-
         public static List<AddonEntry> GetAddonList()
         {
             var addonList = Properties.Settings.Default.Addons;
@@ -109,69 +108,47 @@ namespace XIVLauncher
                 TypeNameHandling = TypeNameHandling.Objects,
                 TypeNameAssemblyFormat = System.Runtime.Serialization.Formatters.FormatterAssemblyStyle.Simple
             });
-
         }
 
-        public static List<UniqueIdCacheEntry> GetUniqueIdCache()
+        public static List<UniqueIdCacheEntry> UniqueIdCache
         {
-            var cache = JsonConvert.DeserializeObject<List<UniqueIdCacheEntry>>(Properties.Settings.Default
-                .UniqueIdCache);
+            get
+            {
+                var cache = JsonConvert.DeserializeObject<List<UniqueIdCacheEntry>>(Properties.Settings.Default
+                    .UniqueIdCache);
 
-            return cache ?? new List<UniqueIdCacheEntry>();
+                return cache ?? new List<UniqueIdCacheEntry>();
+            }
+
+            set => Properties.Settings.Default.UniqueIdCache = JsonConvert.SerializeObject(value);
         }
 
-        public static void SetUniqueIdCache(List<UniqueIdCacheEntry> cache)
+        public static bool UniqueIdCacheEnabled
         {
-            Properties.Settings.Default.UniqueIdCache = JsonConvert.SerializeObject(cache);
+            get => Properties.Settings.Default.UniqueIdCacheEnabled;
+            set => Properties.Settings.Default.UniqueIdCacheEnabled = value;
         }
 
-        public static bool IsUniqueIdCacheEnabled()
+        public static bool RmtFilterEnabled
         {
-            return Properties.Settings.Default.UniqueIdCacheEnabled;
+            get => Properties.Settings.Default.RmtFilterEnabled;
+            set => Properties.Settings.Default.RmtFilterEnabled = value;
         }
 
-        public static void SetUniqueIdCacheEnabled(bool enabled)
+        public static DiscordFeatureConfiguration DiscordFeatureConfig
         {
-            Properties.Settings.Default.UniqueIdCacheEnabled = enabled;
-        }
+            get
+            {
+                var config = JsonConvert.DeserializeObject<DiscordFeatureConfiguration>(Properties.Settings.Default
+                    .DiscordFeatureConfiguration);;
 
-        public static bool IsChatNotificationsEnabled()
-        {
-            return Properties.Settings.Default.ChatNotificationsEnabled;
-        }
+                return config ?? new DiscordFeatureConfiguration
+                {
+                    ChatTypeConfigurations = new List<ChatTypeConfiguration>()
+                };
+            }
 
-        public static void SetChatNotificationsEnabled(bool value)
-        {
-            Properties.Settings.Default.ChatNotificationsEnabled = value;
-        }
-        public static bool IsCfNotificationsEnabled()
-        {
-            return Properties.Settings.Default.CfNotificationsEnabled;
-        }
-
-        public static void SetCfNotificationsEnabled(bool value)
-        {
-            Properties.Settings.Default.CfNotificationsEnabled = value;
-        }
-
-        public static bool IsRmtFilterEnabled()
-        {
-            return Properties.Settings.Default.RmtFilterEnabled;
-        }
-
-        public static void SetRmtFilterEnabled(bool value)
-        {
-            Properties.Settings.Default.RmtFilterEnabled = value;
-        }
-
-        public static string GetDiscordWebhookUrl()
-        {
-            return Properties.Settings.Default.DiscordWebHookUrl;
-        }
-
-        public static void SetDiscordWebhookUrl(string url)
-        {
-            Properties.Settings.Default.DiscordWebHookUrl = url;
+            set => Properties.Settings.Default.DiscordFeatureConfiguration = JsonConvert.SerializeObject(value);
         }
 
         public static bool IsInGameAddonEnabled()
